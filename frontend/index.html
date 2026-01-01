@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Heminredningsvisualisering</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; background: #f9f9fb; }
+      header { margin-bottom: 24px; }
+      section { background: white; border: 1px solid #ddd; padding: 16px; margin-bottom: 16px; border-radius: 8px; }
+      label { display: block; margin-top: 8px; }
+      input, select, button { margin-top: 4px; padding: 6px 8px; }
+      .row { display: flex; gap: 16px; }
+      .column { flex: 1; }
+      .badge { background: #eef2ff; padding: 4px 8px; border-radius: 6px; }
+      .rendered { max-width: 100%; margin-top: 12px; border: 1px solid #ccc; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Fotorealistisk inredningsvisualisering</h1>
+      <p>Skapa ett projekt, ladda upp fyra väggfoton och placera möbler med korrekta mått.</p>
+    </header>
+
+    <section id="project-section">
+      <h2>1. Skapa projekt</h2>
+      <label>Projektnamn <input id="project-name" placeholder="Vardagsrum" /></label>
+      <button onclick="createProject()">Skapa</button>
+      <div id="project-status"></div>
+    </section>
+
+    <section id="upload-section" style="display:none;">
+      <h2>2. Ladda upp väggar</h2>
+      <p>Fyra väggar rekommenderas, ett foto per vägg taget från rummets mitt.</p>
+      <div class="row">
+        <div class="column">
+          <label>Vägg-ID <input id="wall-id" value="wall-1" /></label>
+          <label>Fil <input type="file" id="wall-file" /></label>
+          <button onclick="uploadWall()">Ladda upp</button>
+        </div>
+        <div class="column" id="wall-list"></div>
+      </div>
+    </section>
+
+    <section id="calibration-section" style="display:none;">
+      <h2>3. Kalibrera</h2>
+      <p>Ange vänster och höger hörn (x, y i procent av bilden) samt golvlinjens y.</p>
+      <div class="row">
+        <div class="column">
+          <label>Vägg-ID <input id="cal-wall-id" value="wall-1" /></label>
+          <label>Vänster hörn (x,y) <input id="left-corner" value="0.1,0.9" /></label>
+          <label>Höger hörn (x,y) <input id="right-corner" value="0.9,0.9" /></label>
+          <label>Golvlinje y <input id="floor-line" value="0.9" /></label>
+          <button onclick="saveCalibration()">Spara kalibrering</button>
+        </div>
+        <div class="column">
+          <label>Referensvägg <input id="ref-wall" value="wall-1" /></label>
+          <label>Längd i meter <input id="ref-length" value="4.2" /></label>
+          <button onclick="saveScale()">Sätt skala</button>
+          <div id="scale-status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="placement-section" style="display:none;">
+      <h2>4. Placera möbler</h2>
+      <div class="row">
+        <div class="column">
+          <label>Vägg-ID <input id="placement-wall" value="wall-1" /></label>
+          <label>Möbel <select id="catalog-select"></select></label>
+          <label>Variant <input id="variant" value="Ljusgrå" /></label>
+          <label>Position (x,y 0-1) <input id="position" value="0.35,0.65" /></label>
+          <label>Rotation (deg) <input id="rotation" value="0" /></label>
+          <button onclick="addPlacement()">Lägg till</button>
+        </div>
+        <div class="column">
+          <div id="placements"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="render-section" style="display:none;">
+      <h2>5. Rendera</h2>
+      <label>Väggar (kommaseparerade eller tom för alla) <input id="render-walls" placeholder="wall-1,wall-2" /></label>
+      <button onclick="renderImages()">Rendera</button>
+      <div id="renders"></div>
+    </section>
+
+    <script>
+      let projectId = null;
+
+      async function createProject() {
+        const name = document.getElementById('project-name').value;
+        const res = await fetch('http://localhost:8000/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        projectId = data.id;
+        document.getElementById('project-status').innerText = `Projekt-ID: ${projectId}`;
+        document.getElementById('upload-section').style.display = 'block';
+        document.getElementById('calibration-section').style.display = 'block';
+        document.getElementById('placement-section').style.display = 'block';
+        document.getElementById('render-section').style.display = 'block';
+        loadCatalog();
+      }
+
+      async function uploadWall() {
+        const wallId = document.getElementById('wall-id').value;
+        const fileInput = document.getElementById('wall-file');
+        const formData = new FormData();
+        formData.append('wall_id', wallId);
+        formData.append('file', fileInput.files[0]);
+        const res = await fetch(`http://localhost:8000/projects/${projectId}/walls?wall_id=${wallId}`, {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        document.getElementById('wall-list').innerHTML += `<div class="badge">${data.wall_id}: ${data.stored_filename}</div>`;
+      }
+
+      async function saveCalibration() {
+        const wallId = document.getElementById('cal-wall-id').value;
+        const left = document.getElementById('left-corner').value.split(',').map(Number);
+        const right = document.getElementById('right-corner').value.split(',').map(Number);
+        const floor = parseFloat(document.getElementById('floor-line').value);
+        await fetch(`http://localhost:8000/projects/${projectId}/calibrations/${wallId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ left_corner: left, right_corner: right, floor_line_y: floor })
+        });
+        document.getElementById('scale-status').innerText = `Kalibrering sparad för ${wallId}`;
+      }
+
+      async function saveScale() {
+        const wall = document.getElementById('ref-wall').value;
+        const length = parseFloat(document.getElementById('ref-length').value);
+        await fetch(`http://localhost:8000/projects/${projectId}/scale`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reference_wall: wall, reference_length_m: length })
+        });
+        document.getElementById('scale-status').innerText = `Skala låst med ${length} m på ${wall}`;
+      }
+
+      async function loadCatalog() {
+        const res = await fetch('http://localhost:8000/catalog');
+        const catalog = await res.json();
+        const select = document.getElementById('catalog-select');
+        catalog.forEach(item => {
+          const opt = document.createElement('option');
+          opt.value = item.sku;
+          opt.textContent = `${item.name} (${item.width_m}m)`;
+          select.appendChild(opt);
+        });
+      }
+
+      async function addPlacement() {
+        const wallId = document.getElementById('placement-wall').value;
+        const sku = document.getElementById('catalog-select').value;
+        const variant = document.getElementById('variant').value;
+        const pos = document.getElementById('position').value.split(',').map(Number);
+        const rot = parseFloat(document.getElementById('rotation').value);
+        await fetch(`http://localhost:8000/projects/${projectId}/placements`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wall_id: wallId, sku, variant, position: pos, rotation_deg: rot })
+        });
+        document.getElementById('placements').innerHTML += `<div class="badge">${sku} @ ${wallId} (${pos})</div>`;
+      }
+
+      async function renderImages() {
+        const wallsVal = document.getElementById('render-walls').value;
+        const walls = wallsVal ? wallsVal.split(',').map(w => w.trim()) : null;
+        const res = await fetch('http://localhost:8000/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_id: projectId, walls })
+        });
+        const data = await res.json();
+        const container = document.getElementById('renders');
+        container.innerHTML = '';
+        data.rendered.forEach(wall => {
+          const img = document.createElement('img');
+          img.src = `http://localhost:8000/renders/${data.project_id}/${wall.wall_id}`;
+          img.className = 'rendered';
+          container.appendChild(img);
+        });
+      }
+    </script>
+  </body>
+</html>

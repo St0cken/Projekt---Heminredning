@@ -1,1 +1,49 @@
-Denna fil är endast till för att få ett grundläggande dokument
+# Fotorealistisk inredningsvisualisering
+
+Detta repo innehåller en enklare MVP-prototyp för en webbaserad tjänst som låter användare skapa ett rum, ladda upp väggfoton, kalibrera skala och placera möbler från en katalog. Renderingen sker genom att kombinera originalfoto med en transparent overlay som markerar möblernas positioner.
+
+## Kom igång
+
+### Backend
+1. Installera beroenden:
+   ```bash
+   cd backend
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+2. Starta API:t:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+### Frontend
+Öppna `frontend/index.html` i en webbläsare. UI:t använder HTTP-anrop mot `http://localhost:8000`.
+
+## Flöde i UI:t
+1. **Skapa projekt** och kopiera projekt-id.
+2. **Ladda upp väggar** (fyra bilder rekommenderas) med valfritt vägg-id.
+3. **Kalibrera** varje vägg genom att ange hörnpunkter och golvlinje. Sätt även skala med en känd vägglängd i meter.
+4. **Placera möbler** genom att välja SKU, variant, vägg, position (normaliserade koordinater) och rotation.
+5. **Rendera** en eller flera väggar. Systemet sparar PNG-filer i `runtime/uploads/<projekt>/renders` och visar dem i UI:t.
+
+## Katalog
+Möbelkatalogen finns i `backend/app/catalog.py` och rymmer 5 exempelartiklar med dimensioner och färgvarianter. Lägg till fler genom att utöka listan `CATALOG`.
+
+## Datamodell
+- `Project`: namn, väggbilder, kalibreringar, skala och placeringar.
+- `WallCalibration`: vänster/höger hörn samt golvlinje i bildprocent.
+- `RoomScale`: referensvägg och verklig längd i meter.
+- `FurniturePlacement`: SKU, variant, vägg-id, normaliserad position samt rotation.
+
+Data lagras i minne och uppladdade/renderade bilder skrivs till `runtime/uploads/`.
+
+## Renderingsstrategi (MVP)
+I denna prototyp skapas en transparent overlay med rutmarkerade möbler och text för SKU/variant/rotation. Detta säkerställer att koordinatsystemet och skalningen kan testas. För produktion ersätts `_placement_overlay` i `backend/app/main.py` med en modul som:
+- Projekterar möbelmodeller i rumskoordinater utifrån kalibrering + skala.
+- Matchar ljus/skuggor med hjälp av per-vägg-analys (t.ex. normals/ljusstyrka) och textur/alpha-blending.
+- Renderar fotorealistiskt via externt renderings-API eller lokal inferens.
+
+## Begränsningar
+- Ingen persistens utöver runtime-mappar.
+- Renderingen är 2D-overlay, ej fotorealistisk raytracing. Prototypen fokuserar på rätt datastruktur och koordination mellan väggar.
